@@ -11,7 +11,7 @@ const APP_ID = 'vantutor-app';
 
 // --- Icon Component for Menu ---
 const DotsVerticalIcon = ({ className = "w-6 h-6" }: { className?: string }) => (
-    <svg xmlns="http://www.w.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
     </svg>
 );
@@ -127,23 +127,36 @@ const UserManager: React.FC = () => {
         if (window.confirm("Are you sure you want to delete this user and all their data? This action cannot be undone.")) {
             setDeletingUserId(userId);
             try {
-                // Delete user document and associated leaderboard entries
-                await deleteDoc(doc(db, "users", userId));
+                // IMPORTANT: Deleting a Firebase Auth user requires admin privileges and must be done from a secure backend environment (e.g., a Cloud Function).
+                // The client-side SDK cannot delete other users for security reasons.
+                console.warn(`ACTION REQUIRED: The user's database records were deleted, but their authentication account still exists. For complete deletion, you MUST remove user ${userId} from the 'Authentication' tab in your Firebase console, or implement a secure backend function to do so.`);
+                
+                // Example of what a call to a Cloud Function would look like:
+                /*
+                import { getFunctions, httpsCallable } from "firebase/functions";
+                const functions = getFunctions();
+                const deleteAuthUser = httpsCallable(functions, 'deleteAuthUser');
+                await deleteAuthUser({ uid: userId });
+                */
+
+                // Using a batch to delete all Firestore documents atomically.
+                const batch = writeBatch(db);
+                
+                const userRef = doc(db, "users", userId);
+                batch.delete(userRef);
                 
                 const overallRef = doc(db, "leaderboardOverall", userId);
-                if ((await getDoc(overallRef)).exists()) {
-                    await deleteDoc(overallRef);
-                }
+                if ((await getDoc(overallRef)).exists()) batch.delete(overallRef);
 
                 const weeklyRef = doc(db, "leaderboardWeekly", userId);
-                if ((await getDoc(weeklyRef)).exists()) {
-                    await deleteDoc(weeklyRef);
-                }
+                if ((await getDoc(weeklyRef)).exists()) batch.delete(weeklyRef);
                 
-                toast.addToast('success', 'Success', 'User data deleted successfully.');
+                await batch.commit();
+                
+                toast.addToast('success', 'Database Records Deleted', 'User data removed from database. Remember to also delete their account from Firebase Auth.');
             } catch (error) {
                 console.error("Error deleting user:", error);
-                toast.addToast('error', 'Error', 'Failed to delete user data.');
+                toast.addToast('error', 'Error', 'Failed to delete user data. Auth account may still exist.');
             } finally {
                 setDeletingUserId(null);
             }

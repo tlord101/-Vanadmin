@@ -1,5 +1,5 @@
 {
-  "name": "VANTUTOR Admin Panel",
+  "name": "Copy of VANTUTOR Admin Panel",
   "description": "A clean and responsive admin dashboard for VANTUTOR, built with React, TypeScript, TailwindCSS, and Firebase. This single-page application displays real-time statistics from Firestore in a modern, dark glassmorphic interface.",
   "requestFramePermissions": []
 }
