@@ -6,9 +6,10 @@ import CourseManager from './components/CourseManager';
 import UserManager from './components/UserManager';
 import NotificationPanel from './components/NotificationPanel';
 import { db, auth } from './firebase';
-import { getCountFromServer, collection } from 'firebase/firestore';
+import { getCountFromServer, collection, getDocs } from 'firebase/firestore';
 import { ToastProvider } from './contexts/ToastContext';
 import { ToastContainer } from './components/Toast';
+import type { UserActivity } from './types';
 
 // Icon components for StatCards
 const UsersIcon = () => (
@@ -21,24 +22,29 @@ const BookOpenIcon = () => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
     </svg>
 );
-const StarIcon = () => (
+const ActivityIcon = () => ( // New Icon
     <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
 );
-const ClipboardCheckIcon = () => (
+const ClockIcon = () => ( // New Icon
     <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
     </svg>
 );
+
 
 const APP_ID = 'vantutor-app';
 
 const DashboardContent: React.FC = () => {
     const [userCount, setUserCount] = useState<number | null>(null);
     const [courseCount, setCourseCount] = useState<number | null>(null);
-    const [leaderboardCount, setLeaderboardCount] = useState<number | null>(null);
-    const [examCount, setExamCount] = useState<number | null>(null);
+    // New state for activity metrics
+    const [activeUsers, setActiveUsers] = useState<number | null>(null);
+    const [avgSession, setAvgSession] = useState<string | null>(null);
+    const [topCountries, setTopCountries] = useState<{ country: string; count: number }[]>([]);
+
     const [error, setError] = useState<string | null>(null);
   
     useEffect(() => {
@@ -47,20 +53,65 @@ const DashboardContent: React.FC = () => {
         try {
           const usersCol = collection(db, "users");
           const coursesCol = collection(db, "artifacts", APP_ID, "public", "data", "courses");
-          const leaderboardCol = collection(db, "leaderboardOverall");
-          const examsCol = collection(db, "exams");
+          const activityCol = collection(db, "userActivity");
   
-          const [userSnapshot, courseSnapshot, leaderboardSnapshot, examSnapshot] = await Promise.all([
+          const [userSnapshot, courseSnapshot, activitySnapshot] = await Promise.all([
               getCountFromServer(usersCol),
               getCountFromServer(coursesCol),
-              getCountFromServer(leaderboardCol),
-              getCountFromServer(examsCol)
+              getDocs(activityCol)
           ]);
   
           setUserCount(userSnapshot.data().count);
           setCourseCount(courseSnapshot.data().count);
-          setLeaderboardCount(leaderboardSnapshot.data().count);
-          setExamCount(examSnapshot.data().count);
+          
+          // --- Process Activity Data ---
+          const allActivities: UserActivity[] = activitySnapshot.docs.map(doc => doc.data() as UserActivity);
+
+          // 1. Calculate Active Users (24h)
+          const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+          const activeUsersCount = allActivities.filter(activity => 
+            activity.loginHistory && activity.loginHistory.some(login => login.timestamp > twentyFourHoursAgo)
+          ).length;
+          setActiveUsers(activeUsersCount);
+
+          // 2. Calculate Avg Session Duration (7d)
+          const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+          let totalDuration = 0;
+          let sessionCount = 0;
+          allActivities.forEach(activity => {
+              if (activity.sessionHistory) {
+                  activity.sessionHistory.forEach(session => {
+                      if (session.startTime > sevenDaysAgo) {
+                          totalDuration += session.durationSeconds;
+                          sessionCount++;
+                      }
+                  });
+              }
+          });
+          const avgDurationMinutes = sessionCount > 0 ? (totalDuration / sessionCount / 60) : 0;
+          setAvgSession(`${avgDurationMinutes.toFixed(1)} min`);
+
+          // 3. Calculate Top 5 Login Countries
+          const countryCounts: { [key: string]: number } = {};
+          allActivities.forEach(activity => {
+              if (activity.loginHistory) {
+                  const uniqueCountriesForUser = new Set<string>();
+                  activity.loginHistory.forEach(login => {
+                      const country = login.location.split(', ').pop();
+                      if (country) {
+                          uniqueCountriesForUser.add(country);
+                      }
+                  });
+                  uniqueCountriesForUser.forEach(country => {
+                      countryCounts[country] = (countryCounts[country] || 0) + 1;
+                  });
+              }
+          });
+          const sortedCountries = Object.entries(countryCounts)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 5)
+              .map(([country, count]) => ({ country, count }));
+          setTopCountries(sortedCountries);
   
         } catch (err) {
           console.error("Error fetching data from Firestore: ", err);
@@ -82,12 +133,29 @@ const DashboardContent: React.FC = () => {
                 )}
                 <StatCard title="Total Users" value={userCount} icon={<UsersIcon />} color="bg-blue-500" />
                 <StatCard title="Total Courses" value={courseCount} icon={<BookOpenIcon />} color="bg-green-500" />
-                <StatCard title="Players on Leaderboard" value={leaderboardCount} icon={<StarIcon />} color="bg-yellow-500" />
-                <StatCard title="Active Exams" value={examCount} icon={<ClipboardCheckIcon />} color="bg-red-500" />
+                <StatCard title="Active Users (24h)" value={activeUsers} icon={<ActivityIcon />} color="bg-cyan-500" />
+                <StatCard title="Avg. Session (7d)" value={avgSession} icon={<ClockIcon />} color="bg-purple-500" />
             </div>
-            <div className="mt-8 bg-white/5 backdrop-blur-md rounded-2xl p-6 shadow-lg border border-white/10">
-                <h2 className="text-xl font-semibold text-white mb-4">Recent Activity</h2>
-                <p className="text-gray-400">Activity feed will be displayed here in a future phase.</p>
+            <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 shadow-lg border border-white/10">
+                    <h2 className="text-xl font-semibold text-white mb-4">Top Login Countries</h2>
+                    {topCountries.length > 0 ? (
+                        <ul className="space-y-3">
+                            {topCountries.map(({ country, count }) => (
+                                <li key={country} className="flex items-center justify-between text-gray-300">
+                                    <span>{country}</span>
+                                    <span className="font-bold text-white bg-black/20 px-2 py-1 rounded-md">{count.toLocaleString()} Users</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="text-gray-400">No country data available yet.</p>
+                    )}
+                </div>
+                <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 shadow-lg border border-white/10">
+                    <h2 className="text-xl font-semibold text-white mb-4">Security Alert Feed</h2>
+                    <p className="text-gray-400">Automated security alerts (e.g., impossible travel) will be displayed here in a future phase.</p>
+                </div>
             </div>
         </div>
     );

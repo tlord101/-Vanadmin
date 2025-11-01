@@ -2,7 +2,7 @@ import type { ReactNode, ReactElement } from 'react';
 
 export interface StatCardProps {
   title: string;
-  value: number | null;
+  value: number | string | null;
   icon: ReactNode;
   color: string;
 }
@@ -33,6 +33,25 @@ export interface Course {
   description?: string;
   levels: string[];
   subjectList: Subject[];
+}
+
+// Activity Tracking interfaces
+export interface LoginEvent {
+  ipAddress: string;
+  location: string;
+  timestamp: number;
+  userAgent: string;
+}
+
+export interface SessionEvent {
+  startTime: number;
+  endTime: number;
+  durationSeconds: number;
+}
+
+export interface UserActivity {
+    loginHistory?: LoginEvent[];
+    sessionHistory?: SessionEvent[];
 }
 
 // User Management and Notification interfaces

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, doc, getDoc, updateDoc, deleteDoc, query, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { User, Course } from '../types';
+import type { User, Course, UserActivity } from '../types';
 import EditUserModal from './EditUserModal';
 import PromoteUsersModal from './PromoteUsersModal';
 import { useToast } from '../contexts/ToastContext';
@@ -31,6 +31,8 @@ const UserManager: React.FC = () => {
 
     // State for modals
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [editingUserActivity, setEditingUserActivity] = useState<UserActivity | null>(null);
+    const [isActivityLoading, setIsActivityLoading] = useState(false);
     const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -87,9 +89,23 @@ const UserManager: React.FC = () => {
         };
     }, []);
 
-    const handleEditClick = (user: User) => {
-        setEditingUser(user);
+    const handleEditClick = async (user: User) => {
         setOpenMenuId(null); // Close menu after action
+        setEditingUser(user);
+        setEditingUserActivity(null); // Reset previous data
+        setIsActivityLoading(true);
+        try {
+            const activityRef = doc(db, 'userActivity', user.id);
+            const activitySnap = await getDoc(activityRef);
+            if (activitySnap.exists()) {
+                setEditingUserActivity(activitySnap.data() as UserActivity);
+            }
+        } catch (error) {
+            console.error("Error fetching user activity:", error);
+            toast.addToast('error', 'Error', 'Could not load user activity data.');
+        } finally {
+            setIsActivityLoading(false);
+        }
     };
 
     const handleSaveEdit = async (userId: string, newName: string, newLevel: string) => {
@@ -279,7 +295,7 @@ const UserManager: React.FC = () => {
                                                             onClick={() => handleEditClick(user)} 
                                                             className="block w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-indigo-500 hover:text-white transition-colors"
                                                         >
-                                                            Edit User
+                                                            View Details
                                                         </button>
                                                         <button 
                                                             onClick={() => handleDeleteUser(user.id)} 
@@ -303,6 +319,8 @@ const UserManager: React.FC = () => {
             {editingUser && (
                 <EditUserModal
                     user={editingUser}
+                    activity={editingUserActivity}
+                    activityLoading={isActivityLoading}
                     courses={courses}
                     onClose={() => setEditingUser(null)}
                     onSave={handleSaveEdit}
