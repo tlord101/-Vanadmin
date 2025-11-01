@@ -67,7 +67,7 @@ const CourseManager: React.FC = () => {
   }, []);
 
   // --- CRUD operations for subjects and topics ---
-  const handleSaveSubjectChanges = async (subjectId: string, newName: string, topicsToAdd: string[]) => {
+  const handleSaveSubjectChanges = async (subjectId: string, newName: string, newSemester: 'first' | 'second', topicsToAdd: string[], topicsToDelete: string[]) => {
     if (!editingSubjectState) return;
     setLoading(true);
     try {
@@ -82,10 +82,12 @@ const CourseManager: React.FC = () => {
 
         const newSubjectList = course.subjectList.map(s => {
             if (s.subjectId === subjectId) {
+                const remainingTopics = s.topics.filter(t => !topicsToDelete.includes(t.topicId));
                 return {
                     ...s,
                     subjectName: newName,
-                    topics: [...s.topics, ...newTopics]
+                    semester: newSemester,
+                    topics: [...remainingTopics, ...newTopics]
                 };
             }
             return s;
@@ -209,8 +211,15 @@ const CourseManager: React.FC = () => {
                             onClick={() => setEditingSubjectState({ course, subject })}
                             className="w-full bg-black/30 text-white p-3 rounded-lg text-left hover:bg-indigo-500/30 transition-colors"
                           >
-                            <span className="font-medium">{subject.subjectName}</span>
-                            <span className="block text-xs text-gray-400">{subject.topics.length} topics</span>
+                            <div className="flex justify-between items-center">
+                                <span className="font-medium">{subject.subjectName}</span>
+                                {subject.semester && (
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${subject.semester === 'first' ? 'bg-blue-500/30 text-blue-300' : 'bg-green-500/30 text-green-300'}`}>
+                                        {subject.semester === 'first' ? '1st Sem' : '2nd Sem'}
+                                    </span>
+                                )}
+                            </div>
+                            <span className="block text-xs text-gray-400 mt-1">{subject.topics.length} topics</span>
                           </button>
                         ))}
                       </div>

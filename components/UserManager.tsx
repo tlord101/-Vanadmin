@@ -1,8 +1,6 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, doc, getDoc, updateDoc, deleteDoc, query, writeBatch } from 'firebase/firestore';
-import { db, functions } from '../firebase';
-import { httpsCallable } from 'firebase/functions';
+import { db } from '../firebase';
 import type { User, Course } from '../types';
 import EditUserModal from './EditUserModal';
 import PromoteUsersModal from './PromoteUsersModal';
@@ -125,32 +123,27 @@ const UserManager: React.FC = () => {
     };
     
     const handleDeleteUser = async (userId: string) => {
-        setOpenMenuId(null);
-        if (window.confirm("Are you sure you want to permanently delete this user? This will remove their authentication account and all database records. This action cannot be undone.")) {
+        setOpenMenuId(null); // Close menu after action
+        if (window.confirm("Are you sure you want to delete this user and all their data? This action cannot be undone.")) {
             setDeletingUserId(userId);
             try {
-                // Step 1: Securely delete the Firebase Auth user via a Cloud Function.
-                const deleteAuthUser = httpsCallable(functions, 'deleteAuthUser');
-                await deleteAuthUser({ uid: userId });
-
-                // Step 2: If Auth deletion succeeds, delete Firestore data in a single batch.
-                const batch = writeBatch(db);
-
-                const userRef = doc(db, "users", userId);
-                batch.delete(userRef);
-
+                // Delete user document and associated leaderboard entries
+                await deleteDoc(doc(db, "users", userId));
+                
                 const overallRef = doc(db, "leaderboardOverall", userId);
-                if ((await getDoc(overallRef)).exists()) batch.delete(overallRef);
+                if ((await getDoc(overallRef)).exists()) {
+                    await deleteDoc(overallRef);
+                }
 
                 const weeklyRef = doc(db, "leaderboardWeekly", userId);
-                if ((await getDoc(weeklyRef)).exists()) batch.delete(weeklyRef);
-
-                await batch.commit();
-
-                toast.addToast('success', 'User Deleted', 'User account and all data permanently removed.');
+                if ((await getDoc(weeklyRef)).exists()) {
+                    await deleteDoc(weeklyRef);
+                }
+                
+                toast.addToast('success', 'Success', 'User data deleted successfully.');
             } catch (error) {
                 console.error("Error deleting user:", error);
-                toast.addToast('error', 'Deletion Failed', 'Could not delete user. Check console for errors.');
+                toast.addToast('error', 'Error', 'Failed to delete user data.');
             } finally {
                 setDeletingUserId(null);
             }
@@ -198,6 +191,21 @@ const UserManager: React.FC = () => {
         if (!timestamp) return 'N/A';
         return new Date(timestamp.seconds * 1000).toLocaleDateString();
     };
+
+    const getUserStatus = (lastActivity: { seconds: number; nanoseconds: number; } | undefined) => {
+        if (!lastActivity) {
+            return { status: 'Inactive', labelColor: 'bg-gray-500/30 text-gray-300', lastSeen: 'Never' };
+        }
+        const lastActivityDate = new Date(lastActivity.seconds * 1000);
+        const now = new Date();
+        const diffInMs = now.getTime() - lastActivityDate.getTime();
+        const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+        if (diffInDays <= 7) {
+            return { status: 'Active', labelColor: 'bg-green-500/30 text-green-300', lastSeen: lastActivityDate.toLocaleDateString() };
+        }
+        return { status: 'Inactive', labelColor: 'bg-gray-500/30 text-gray-300', lastSeen: lastActivityDate.toLocaleDateString() };
+    };
     
     if (loading) return <div className="text-center text-lg text-gray-400 animate-pulse">Loading User Manager...</div>;
     if (error) return <div className="text-center text-lg text-red-500">{error}</div>;
@@ -223,7 +231,7 @@ const UserManager: React.FC = () => {
             </div>
             <div className="bg-white/5 backdrop-blur-md rounded-2xl shadow-lg border border-white/10 overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[800px]">
+                    <table className="w-full text-left min-w-[1100px]">
                         <thead>
                             <tr className="border-b border-white/10">
                                 <th className="p-4">Display Name</th>
@@ -233,11 +241,15 @@ const UserManager: React.FC = () => {
                                 <th className="p-4">Streak</th>
                                 <th className="p-4">XP</th>
                                 <th className="p-4">Date Joined</th>
+                                <th className="p-4">Last Activity</th>
+                                <th className="p-4">Status</th>
                                 <th className="p-4 text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredUsers.map(user => (
+                            {filteredUsers.map(user => {
+                                const { status, labelColor, lastSeen } = getUserStatus(user.lastActivityDate);
+                                return (
                                 <tr key={user.id} className="border-b border-white/20 last:border-b-0 hover:bg-white/5 transition-colors">
                                     <td className="p-4">{user.displayName}</td>
                                     <td className="p-4 text-gray-400">{user.email}</td>
@@ -246,6 +258,12 @@ const UserManager: React.FC = () => {
                                     <td className="p-4 text-gray-400">{user.currentStreak ?? 0}</td>
                                     <td className="p-4 font-bold">{user.xp?.toLocaleString() ?? 0}</td>
                                     <td className="p-4 text-gray-400">{formatDate(user.createdAt)}</td>
+                                    <td className="p-4 text-gray-400">{lastSeen}</td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${labelColor}`}>
+                                            {status}
+                                        </span>
+                                    </td>
                                     <td className="p-4 h-[65px] text-center relative flex justify-center items-center" ref={openMenuId === user.id ? menuRef : null}>
                                         {deletingUserId === user.id ? (
                                             <Spinner />
@@ -276,7 +294,7 @@ const UserManager: React.FC = () => {
                                         )}
                                     </td>
                                 </tr>
-                            ))}
+                            )})}
                         </tbody>
                     </table>
                 </div>

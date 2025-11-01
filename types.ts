@@ -23,6 +23,7 @@ export interface Subject {
   subjectId: string;
   subjectName: string;
   topics: Topic[];
+  semester?: 'first' | 'second';
 }
 
 export interface Course {

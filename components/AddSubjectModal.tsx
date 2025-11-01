@@ -14,6 +14,7 @@ interface AddSubjectModalProps {
 
 const AddSubjectModal: React.FC<AddSubjectModalProps> = ({ onClose, courseId, levelName }) => {
   const [subjectName, setSubjectName] = useState('');
+  const [semester, setSemester] = useState<'first' | 'second'>('first');
   const [topics, setTopics] = useState<string[]>(['']);
   const [isLoading, setIsLoading] = useState(false);
   const toast = useToast();
@@ -59,6 +60,7 @@ const AddSubjectModal: React.FC<AddSubjectModalProps> = ({ onClose, courseId, le
             level: levelName,
             subjectId,
             subjectName: subjectName.trim(),
+            semester,
             topics: validTopics.map(topicName => ({
                 topicId: `topic_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
                 topicName
@@ -105,6 +107,16 @@ const AddSubjectModal: React.FC<AddSubjectModalProps> = ({ onClose, courseId, le
             className="rounded-xl bg-white/10 text-white p-3 w-full border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
             required
           />
+
+          <select
+            value={semester}
+            onChange={(e) => setSemester(e.target.value as 'first' | 'second')}
+            className="rounded-xl bg-white/10 text-white p-3 w-full border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
+            required
+          >
+            <option value="first">First Semester</option>
+            <option value="second">Second Semester</option>
+          </select>
 
           <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
             <h3 className="text-lg font-semibold text-white">Topics</h3>

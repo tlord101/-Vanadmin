@@ -6,15 +6,21 @@ interface EditSubjectModalProps {
   onClose: () => void;
   course: Course;
   subject: Subject;
-  onSave: (subjectId: string, newName: string, newTopics: string[]) => Promise<void>;
+  onSave: (subjectId: string, newName: string, newSemester: 'first' | 'second', newTopics: string[], topicsToDelete: string[]) => Promise<void>;
   onDelete: (subjectId: string) => Promise<void>;
 }
 
 const EditSubjectModal: React.FC<EditSubjectModalProps> = ({ onClose, course, subject, onSave, onDelete }) => {
   const [subjectName, setSubjectName] = useState(subject.subjectName);
+  const [semester, setSemester] = useState<'first' | 'second'>(subject.semester || 'first');
   const [newTopics, setNewTopics] = useState<string[]>(['']);
+  const [deletedTopicIds, setDeletedTopicIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteTopic = (topicId: string) => {
+    setDeletedTopicIds(prev => prev.includes(topicId) ? prev.filter(id => id !== topicId) : [...prev, topicId]);
+  };
 
   const handleAddTopic = () => {
     setNewTopics([...newTopics, '']);
@@ -39,7 +45,7 @@ const EditSubjectModal: React.FC<EditSubjectModalProps> = ({ onClose, course, su
       return;
     }
     setIsLoading(true);
-    await onSave(subject.subjectId, subjectName.trim(), newTopics.filter(t => t.trim()));
+    await onSave(subject.subjectId, subjectName.trim(), semester, newTopics.filter(t => t.trim()), deletedTopicIds);
     setIsLoading(false);
   };
 
@@ -81,13 +87,42 @@ const EditSubjectModal: React.FC<EditSubjectModalProps> = ({ onClose, course, su
             />
           </div>
 
+          <div>
+            <label htmlFor="semester" className="block text-sm font-medium text-gray-300 mb-1">Semester</label>
+            <select
+              id="semester"
+              value={semester}
+              onChange={(e) => setSemester(e.target.value as 'first' | 'second')}
+              className="rounded-xl bg-white/10 text-white p-3 w-full border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
+              required
+            >
+              <option value="first">First Semester</option>
+              <option value="second">Second Semester</option>
+            </select>
+          </div>
+
           <div className="space-y-2">
              <h3 className="text-lg font-semibold text-white">Existing Topics</h3>
              {subject?.topics && subject.topics.length > 0 ? (
-                <div className="bg-black/20 p-3 rounded-lg">
-                    <ul className="list-disc list-inside text-gray-300 space-y-1">
-                        {subject.topics.map(topic => <li key={topic.topicId}>{topic.topicName}</li>)}
-                    </ul>
+                <div className="bg-black/20 p-3 rounded-lg max-h-40 overflow-y-auto space-y-2">
+                    {subject.topics.map(topic => (
+                        <div key={topic.topicId} className="flex justify-between items-center bg-black/20 p-2 rounded-md">
+                            <span className={`text-gray-300 transition-colors ${deletedTopicIds.includes(topic.topicId) ? 'line-through text-red-400' : ''}`}>
+                                {topic.topicName}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => handleDeleteTopic(topic.topicId)}
+                                className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${
+                                    deletedTopicIds.includes(topic.topicId) 
+                                    ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40' 
+                                    : 'bg-red-500/20 text-red-300 hover:bg-red-500/40'
+                                }`}
+                            >
+                                {deletedTopicIds.includes(topic.topicId) ? 'Undo' : 'Delete'}
+                            </button>
+                        </div>
+                    ))}
                 </div>
              ) : <p className="text-gray-400 italic">No topics exist yet.</p>}
           </div>
