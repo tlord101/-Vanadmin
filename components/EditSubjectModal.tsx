@@ -6,12 +6,12 @@ interface EditSubjectModalProps {
   onClose: () => void;
   course: Course;
   subject: Subject;
-  onSave: (subjectId: string, newName: string, newSemester: 'first' | 'second', newTopics: string[], topicsToDelete: string[]) => Promise<void>;
+  onSave: (updatedSubject: Subject) => Promise<void>;
   onDelete: (subjectId: string) => Promise<void>;
 }
 
 const EditSubjectModal: React.FC<EditSubjectModalProps> = ({ onClose, course, subject, onSave, onDelete }) => {
-  const [subjectName, setSubjectName] = useState(subject.subjectName);
+  const [subjectName, setSubjectName] = useState(subject.subject_name);
   const [semester, setSemester] = useState<'first' | 'second'>(subject.semester || 'first');
   const [newTopics, setNewTopics] = useState<string[]>(['']);
   const [deletedTopicIds, setDeletedTopicIds] = useState<string[]>([]);
@@ -45,14 +45,34 @@ const EditSubjectModal: React.FC<EditSubjectModalProps> = ({ onClose, course, su
       return;
     }
     setIsLoading(true);
-    await onSave(subject.subjectId, subjectName.trim(), semester, newTopics.filter(t => t.trim()), deletedTopicIds);
+    
+    const updatedTopics = (subject.topics || [])
+        .filter(topic => !deletedTopicIds.includes(topic.topic_id))
+        .concat(
+            newTopics
+                .map(t => t.trim())
+                .filter(t => t)
+                .map(topicName => ({
+                    topic_id: `topic_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                    topic_name: topicName,
+                }))
+        );
+
+    const updatedSubject: Subject = {
+        ...subject,
+        subject_name: subjectName.trim(),
+        semester: semester,
+        topics: updatedTopics,
+    };
+
+    await onSave(updatedSubject);
     setIsLoading(false);
   };
 
   const handleDelete = async () => {
     if (!subject) return;
     setIsDeleting(true);
-    await onDelete(subject.subjectId);
+    await onDelete(subject.subject_id);
     // onClose will be called from parent if delete is successful
     setIsDeleting(false);
   }
@@ -106,20 +126,20 @@ const EditSubjectModal: React.FC<EditSubjectModalProps> = ({ onClose, course, su
              {subject?.topics && subject.topics.length > 0 ? (
                 <div className="bg-black/20 p-3 rounded-lg max-h-40 overflow-y-auto space-y-2">
                     {subject.topics.map(topic => (
-                        <div key={topic.topicId} className="flex justify-between items-center bg-black/20 p-2 rounded-md">
-                            <span className={`text-gray-300 transition-colors ${deletedTopicIds.includes(topic.topicId) ? 'line-through text-red-400' : ''}`}>
-                                {topic.topicName}
+                        <div key={topic.topic_id} className="flex justify-between items-center bg-black/20 p-2 rounded-md">
+                            <span className={`text-gray-300 transition-colors ${deletedTopicIds.includes(topic.topic_id) ? 'line-through text-red-400' : ''}`}>
+                                {topic.topic_name}
                             </span>
                             <button
                                 type="button"
-                                onClick={() => handleDeleteTopic(topic.topicId)}
+                                onClick={() => handleDeleteTopic(topic.topic_id)}
                                 className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${
-                                    deletedTopicIds.includes(topic.topicId) 
+                                    deletedTopicIds.includes(topic.topic_id) 
                                     ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40' 
                                     : 'bg-red-500/20 text-red-300 hover:bg-red-500/40'
                                 }`}
                             >
-                                {deletedTopicIds.includes(topic.topicId) ? 'Undo' : 'Delete'}
+                                {deletedTopicIds.includes(topic.topic_id) ? 'Undo' : 'Delete'}
                             </button>
                         </div>
                     ))}

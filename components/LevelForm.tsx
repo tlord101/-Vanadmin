@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabase';
 import type { Course } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import Spinner from './Spinner';
@@ -8,8 +7,6 @@ import Spinner from './Spinner';
 interface LevelFormProps {
   courses: Course[];
 }
-
-const APP_ID = 'vantutor-app';
 
 const LevelForm: React.FC<LevelFormProps> = ({ courses }) => {
   const [selectedCourse, setSelectedCourse] = useState('');
@@ -25,15 +22,38 @@ const LevelForm: React.FC<LevelFormProps> = ({ courses }) => {
     }
     setIsLoading(true);
     try {
-      const courseRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'courses', selectedCourse);
-      await updateDoc(courseRef, {
-        levels: arrayUnion(levelName.trim())
-      });
+      // 1. Fetch the current levels for the selected course
+      const { data, error: fetchError } = await supabase
+        .from('courses_data')
+        .select('levels')
+        .eq('id', selectedCourse)
+        .single();
+      
+      if (fetchError) throw fetchError;
+
+      // 2. Append the new level (avoiding duplicates)
+      const currentLevels = data?.levels || [];
+      const newLevel = levelName.trim();
+      if (currentLevels.includes(newLevel)) {
+        toast.addToast('info', 'Duplicate', 'This level already exists for the course.');
+        setIsLoading(false);
+        return;
+      }
+      const updatedLevels = [...currentLevels, newLevel];
+
+      // 3. Update the course with the new levels array
+      const { error: updateError } = await supabase
+        .from('courses_data')
+        .update({ levels: updatedLevels })
+        .eq('id', selectedCourse);
+      
+      if (updateError) throw updateError;
+      
       toast.addToast('success', 'Success', 'Level added successfully!');
       setLevelName('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding level:', error);
-      toast.addToast('error', 'Error', 'Failed to add level. See console for details.');
+      toast.addToast('error', 'Error', `Failed to add level: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -52,7 +72,7 @@ const LevelForm: React.FC<LevelFormProps> = ({ courses }) => {
           <option value="" disabled>Select a Course</option>
           {courses.map((course) => (
             <option key={course.id} value={course.id}>
-              {course.courseName}
+              {course.course_name}
             </option>
           ))}
         </select>

@@ -1,14 +1,10 @@
 import React, { useState } from 'react';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabase';
 import { useToast } from '../contexts/ToastContext';
 import Spinner from './Spinner';
 
-const APP_ID = 'vantutor-app'; // As specified in the prompt
-
 const CourseForm: React.FC = () => {
   const [courseName, setCourseName] = useState('');
-  const [description, setDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const toast = useToast();
 
@@ -20,21 +16,21 @@ const CourseForm: React.FC = () => {
     }
     setIsLoading(true);
     try {
-      const courseId = `course_${Date.now()}`;
-      const courseRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'courses', courseId);
-      await setDoc(courseRef, {
-        courseId,
-        courseName,
-        description,
+      const course_id = `course_${Date.now()}`;
+      const { error } = await supabase.from('courses_data').insert({
+        id: course_id,
+        course_name: courseName,
         levels: [],
-        subjectList: [],
+        subject_list: [],
       });
+
+      if (error) throw error;
+
       toast.addToast('success', 'Success', 'Course created successfully!');
       setCourseName('');
-      setDescription('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating course:', error);
-      toast.addToast('error', 'Error', 'Failed to create course. See console for details.');
+      toast.addToast('error', 'Error', `Failed to create course: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -51,13 +47,6 @@ const CourseForm: React.FC = () => {
           onChange={(e) => setCourseName(e.target.value)}
           className="rounded-xl bg-white/10 text-white p-3 w-full border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
           required
-        />
-        <textarea
-          placeholder="Description (Optional)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="rounded-xl bg-white/10 text-white p-3 w-full border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
-          rows={3}
         />
         <button
           type="submit"

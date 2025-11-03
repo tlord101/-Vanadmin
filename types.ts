@@ -12,69 +12,48 @@ export interface NavItem {
   icon: (props: { className?: string }) => ReactElement;
 }
 
-// Course Management interfaces
+// Course Management interfaces aligned with courses_data schema
 export interface Topic {
-  topicId: string;
-  topicName: string;
+  topic_id: string;
+  topic_name: string;
 }
 
 export interface Subject {
+  subject_id: string;
   level: string;
-  subjectId: string;
-  subjectName: string;
+  subject_name: string;
+  semester: 'first' | 'second';
   topics: Topic[];
-  semester?: 'first' | 'second';
 }
 
 export interface Course {
-  id: string; // Firestore document ID
-  courseId: string;
-  courseName: string;
-  description?: string;
+  id: string; // Primary key from courses_data
+  course_name: string;
   levels: string[];
-  subjectList: Subject[];
+  subject_list: Subject[]; // from jsonb column
 }
 
-// Activity Tracking interfaces
-export interface LoginEvent {
-  ipAddress: string;
-  location: string;
-  timestamp: number;
-  userAgent: string;
-}
-
-export interface SessionEvent {
-  startTime: number;
-  endTime: number;
-  durationSeconds: number;
-}
-
-export interface UserActivity {
-    loginHistory?: LoginEvent[];
-    sessionHistory?: SessionEvent[];
-}
-
-// User Management and Notification interfaces
+// User Management and Notification interfaces aligned with schema
 export interface User {
-    id: string; // Firestore document ID (same as userId)
-    displayName: string;
-    email: string;
-    xp?: number; // Fetched from leaderboardOverall
-    createdAt?: { seconds: number; nanoseconds: number; };
-    // Fields from user document in firestore
-    courseId?: string;
-    currentStreak?: number;
+    uid: string; // Supabase auth.users.id (UUID)
+    display_name: string;
+    photo_url?: string;
+    xp?: number; // This is joined from leaderboard_overall
+    course_id?: string;
+    current_streak?: number;
     level?: string;
-    plan?: string;
-    totalTestXP?: number;
-    totalXP?: number;
-    lastActivityDate?: { seconds: number; nanoseconds: number; };
+    total_test_xp?: number;
+    total_xp?: number;
+    last_activity_date?: string; // From bigint
 }
   
 export interface Notification {
-    id: string; // Firestore document ID
+    id: string; // Supabase UUID
+    user_id: string; // user this is for
+    type?: string;
     title: string;
     message: string;
-    target: string; // "all" or a specific userId
-    createdAt: string;
+    timestamp: string; // ISO 8601 string from 'timestamp with time zone'
+    is_read: boolean;
+    link?: string;
 }

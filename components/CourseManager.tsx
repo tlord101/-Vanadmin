@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabase';
 import CourseForm from './CourseForm';
 import LevelForm from './LevelForm';
 import AddSubjectModal from './AddSubjectModal';
 import EditSubjectModal from './EditSubjectModal';
-import type { Course, Subject, Topic } from '../types';
+import type { Course, Subject } from '../types';
 import { useToast } from '../contexts/ToastContext';
+import Spinner from './Spinner';
 
-const APP_ID = 'vantutor-app';
-
-// --- Icon Component ---
+// --- Icon Components ---
 const ChevronDownIcon = ({ className = "w-6 h-6" }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+  </svg>
+);
+
+const TrashIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.134-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.067-2.09.921-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
   </svg>
 );
 
@@ -29,78 +33,62 @@ const CourseManager: React.FC = () => {
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
   const [editingSubjectState, setEditingSubjectState] = useState<{ course: Course, subject: Subject } | null>(null);
   const [contextForAdd, setContextForAdd] = useState<{ courseId: string, levelName: string } | null>(null);
+  const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
 
 
-  useEffect(() => {
-    const coursesQuery = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'courses'));
-    
-    const unsubscribe = onSnapshot(coursesQuery, (snapshot) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const coursesData = snapshot.docs.map((doc) => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                courseId: data.courseId,
-                courseName: data.courseName,
-                description: data.description,
-                levels: data.levels || [],
-                subjectList: data.subjectList || [],
-            } as Course;
-        });
+  const fetchCourses = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+        const { data, error } = await supabase
+            .from('courses_data')
+            .select('*')
+            .order('course_name', { ascending: true });
 
-        setCourses(coursesData);
-      } catch (err) {
+        if (error) throw error;
+        setCourses(data as Course[]);
+    } catch (err: any) {
         console.error("Error fetching courses: ", err);
         setError("Failed to load courses. Please check the console for more details.");
-      } finally {
+    } finally {
         setLoading(false);
-      }
-    }, (err) => {
-      console.error("Error fetching courses: ", err);
-      setError("Failed to load courses. Please check the console for more details.");
-      setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    fetchCourses();
+
+    const courseSubscription = supabase.channel('public:courses_data')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'courses_data' }, fetchCourses)
+      .subscribe();
+      
+    return () => {
+        supabase.removeChannel(courseSubscription);
+    };
   }, []);
 
   // --- CRUD operations for subjects and topics ---
-  const handleSaveSubjectChanges = async (subjectId: string, newName: string, newSemester: 'first' | 'second', topicsToAdd: string[], topicsToDelete: string[]) => {
+  const handleSaveSubjectChanges = async (updatedSubject: Subject) => {
     if (!editingSubjectState) return;
     setLoading(true);
     try {
         const { course } = editingSubjectState;
-        const newTopics: Topic[] = topicsToAdd
-            .map(t => t.trim())
-            .filter(t => t)
-            .map(topicName => ({
-                topicId: `topic_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-                topicName
-            }));
+        const updatedSubjectList = (course.subject_list || []).map(s => 
+            s.subject_id === updatedSubject.subject_id ? updatedSubject : s
+        );
 
-        const newSubjectList = course.subjectList.map(s => {
-            if (s.subjectId === subjectId) {
-                const remainingTopics = s.topics.filter(t => !topicsToDelete.includes(t.topicId));
-                return {
-                    ...s,
-                    subjectName: newName,
-                    semester: newSemester,
-                    topics: [...remainingTopics, ...newTopics]
-                };
-            }
-            return s;
-        });
-
-        const courseRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'courses', course.id);
-        await updateDoc(courseRef, { subjectList: newSubjectList });
-
+        const { error: updateError } = await supabase
+            .from('courses_data')
+            .update({ subject_list: updatedSubjectList })
+            .eq('id', course.id);
+        
+        if (updateError) throw updateError;
+        
         toast.addToast('success', 'Success', 'Subject updated successfully!');
         setEditingSubjectState(null);
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error updating subject:", err);
-        toast.addToast('error', 'Error', 'Failed to update subject.');
+        toast.addToast('error', 'Error', `Failed to update subject: ${err.message}`);
     } finally {
         setLoading(false);
     }
@@ -111,20 +99,47 @@ const CourseManager: React.FC = () => {
     
     setLoading(true);
     try {
-      const { course } = editingSubjectState;
-      const newSubjectList = course.subjectList.filter(s => s.subjectId !== subjectId);
-      const courseRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'courses', course.id);
-      await updateDoc(courseRef, { subjectList: newSubjectList });
-      toast.addToast('success', 'Success', 'Subject deleted successfully!');
-      setEditingSubjectState(null);
-    } catch (err) {
+        const { course } = editingSubjectState;
+        const updatedSubjectList = (course.subject_list || []).filter(s => s.subject_id !== subjectId);
+        
+        const { error: updateError } = await supabase
+            .from('courses_data')
+            .update({ subject_list: updatedSubjectList })
+            .eq('id', course.id);
+
+        if (updateError) throw updateError;
+
+        toast.addToast('success', 'Success', 'Subject deleted successfully!');
+        setEditingSubjectState(null);
+    } catch (err: any) {
         console.error("Error deleting subject:", err);
-        toast.addToast('error', 'Error', 'Failed to delete subject.');
+        toast.addToast('error', 'Error', `Failed to delete subject: ${err.message}`);
     } finally {
         setLoading(false);
     }
   };
   
+  const handleDeleteCourse = async (courseId: string, courseName: string) => {
+    if (!window.confirm(`Are you sure you want to delete the course "${courseName}"? This will also remove all its levels, subjects, and topics. This action cannot be undone.`)) return;
+
+    setDeletingCourseId(courseId);
+    try {
+        const { error } = await supabase
+            .from('courses_data')
+            .delete()
+            .eq('id', courseId);
+        
+        if (error) throw error;
+        
+        toast.addToast('success', 'Success', `Course "${courseName}" deleted successfully.`);
+    } catch (err: any) {
+        console.error("Error deleting course:", err);
+        toast.addToast('error', 'Error', `Failed to delete course: ${err.message}`);
+    } finally {
+        setDeletingCourseId(null);
+    }
+  };
+
   const handleOpenAddModal = (courseId: string, levelName: string) => {
     setContextForAdd({ courseId, levelName });
   };
@@ -165,8 +180,16 @@ const CourseManager: React.FC = () => {
                 {courses.length > 0 ? (
                     <ul className="space-y-2">
                         {courses.map(course => (
-                            <li key={course.id} className="bg-black/20 p-3 rounded-lg text-white">
-                                {course.courseName}
+                            <li key={course.id} className="bg-black/20 p-3 rounded-lg text-white flex justify-between items-center">
+                                <span>{course.course_name}</span>
+                                <button
+                                    onClick={() => handleDeleteCourse(course.id, course.course_name)}
+                                    disabled={deletingCourseId === course.id}
+                                    className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-full transition-colors disabled:opacity-50 disabled:cursor-wait"
+                                    aria-label={`Delete ${course.course_name}`}
+                                >
+                                    {deletingCourseId === course.id ? <Spinner size="w-5 h-5" /> : <TrashIcon className="w-5 h-5" />}
+                                </button>
                             </li>
                         ))}
                     </ul>
@@ -183,14 +206,14 @@ const CourseManager: React.FC = () => {
             if (!level) {
               return (
                 <div key={course.id} className="bg-black/20 rounded-lg border border-white/10 p-4 text-gray-400">
-                  <span className="font-semibold text-white">{course.courseName}</span> - Add levels to this course to manage subjects.
+                  <span className="font-semibold text-white">{course.course_name}</span> - Add levels to this course to manage subjects.
                 </div>
               );
             }
             
             const itemKey = `${course.id}-${level}`;
             const isExpanded = expandedItemKey === itemKey;
-            const subjectsForLevel = course.subjectList.filter(s => s.level === level);
+            const subjectsForLevel = (course.subject_list || []).filter(s => s.level === level);
 
             return (
               <div key={itemKey} className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden">
@@ -198,7 +221,7 @@ const CourseManager: React.FC = () => {
                   onClick={() => setExpandedItemKey(isExpanded ? null : itemKey)}
                   className="flex justify-between items-center w-full text-left p-4 hover:bg-white/5 transition-colors"
                 >
-                  <span className="text-lg font-semibold text-white">{course.courseName} - {level}</span>
+                  <span className="text-lg font-semibold text-white">{course.course_name} - {level}</span>
                   <ChevronDownIcon className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                 </button>
                 {isExpanded && (
@@ -207,19 +230,19 @@ const CourseManager: React.FC = () => {
                       <div className="space-y-2">
                         {subjectsForLevel.map(subject => (
                           <button
-                            key={subject.subjectId}
+                            key={subject.subject_id}
                             onClick={() => setEditingSubjectState({ course, subject })}
                             className="w-full bg-black/30 text-white p-3 rounded-lg text-left hover:bg-indigo-500/30 transition-colors"
                           >
                             <div className="flex justify-between items-center">
-                                <span className="font-medium">{subject.subjectName}</span>
+                                <span className="font-medium">{subject.subject_name}</span>
                                 {subject.semester && (
                                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${subject.semester === 'first' ? 'bg-blue-500/30 text-blue-300' : 'bg-green-500/30 text-green-300'}`}>
                                         {subject.semester === 'first' ? '1st Sem' : '2nd Sem'}
                                     </span>
                                 )}
                             </div>
-                            <span className="block text-xs text-gray-400 mt-1">{subject.topics.length} topics</span>
+                            <span className="block text-xs text-gray-400 mt-1">{subject.topics?.length || 0} topics</span>
                           </button>
                         ))}
                       </div>

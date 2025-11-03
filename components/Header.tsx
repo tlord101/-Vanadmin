@@ -1,15 +1,15 @@
 import React from 'react';
-import { signOut, Auth } from 'firebase/auth';
+import { supabase } from '../supabase';
 
 interface HeaderProps {
-  auth: Auth;
   setIsSidebarOpen: (isOpen: boolean) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ auth, setIsSidebarOpen }) => {
+const Header: React.FC<HeaderProps> = ({ setIsSidebarOpen }) => {
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       console.log('User signed out');
     } catch (error) {
       console.error('Error signing out: ', error);

@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
-import { db } from '../firebase';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import { useToast } from '../contexts/ToastContext';
 import Spinner from './Spinner';
-
-const APP_ID = 'vantutor-app';
+import type { Subject } from '../types';
 
 interface AddSubjectModalProps {
   onClose: () => void;
@@ -53,29 +51,41 @@ const AddSubjectModal: React.FC<AddSubjectModalProps> = ({ onClose, courseId, le
 
     setIsLoading(true);
     try {
-        const courseRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'courses', courseId);
+        // 1. Fetch the course to get current subject_list
+        const { data: courseData, error: fetchError } = await supabase
+            .from('courses_data')
+            .select('subject_list')
+            .eq('id', courseId)
+            .single();
+        if (fetchError) throw fetchError;
+
+        const currentSubjects = courseData?.subject_list || [];
         
-        const subjectId = `subj_${Date.now()}`;
-        const newSubject = {
+        // 2. Create the new subject object
+        const newSubject: Subject = {
+            subject_id: `subj_${Date.now()}`,
             level: levelName,
-            subjectId,
-            subjectName: subjectName.trim(),
+            subject_name: subjectName.trim(),
             semester,
             topics: validTopics.map(topicName => ({
-                topicId: `topic_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-                topicName
-            }))
+                topic_id: `topic_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                topic_name: topicName,
+            })),
         };
 
-        await updateDoc(courseRef, {
-            subjectList: arrayUnion(newSubject)
-        });
+        // 3. Update the course with the new subject list
+        const { error: updateError } = await supabase
+            .from('courses_data')
+            .update({ subject_list: [...currentSubjects, newSubject] })
+            .eq('id', courseId);
+        
+        if (updateError) throw updateError;
 
       toast.addToast('success', 'Success', 'Subject and topics added successfully!');
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding subject and topics:', error);
-      toast.addToast('error', 'Error', 'Failed to add subject. See console for details.');
+      toast.addToast('error', 'Error', `Failed to add subject: ${error.message}`);
     } finally {
       setIsLoading(false);
     }

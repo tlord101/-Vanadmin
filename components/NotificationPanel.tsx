@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, setDoc, getDocs, writeBatch, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabase';
 import type { User, Notification } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import Spinner from './Spinner';
@@ -18,21 +17,26 @@ const NotificationPanel: React.FC = () => {
     const toast = useToast();
     
     useEffect(() => {
-        const usersQuery = query(collection(db, 'users'));
-        const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-            const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-            setUsers(usersData);
-        });
+        const fetchData = async () => {
+            const { data: usersData, error: usersError } = await supabase.from('users').select('uid, display_name');
+            if (usersError) console.error('Error fetching users:', usersError);
+            else setUsers(usersData as User[]);
 
-        const notifsQuery = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(10));
-        const unsubscribeNotifs = onSnapshot(notifsQuery, (snapshot) => {
-            const notifsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
-            setRecentNotifications(notifsData);
-        });
+            const { data: notifsData, error: notifsError } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false }).limit(10);
+            if (notifsError) console.error('Error fetching notifications:', notifsError);
+            else setRecentNotifications(notifsData as Notification[]);
+        };
+
+        fetchData();
+
+        const notifsSubscription = supabase.channel('public:notifications')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
+                setRecentNotifications(current => [payload.new as Notification, ...current].slice(0, 10));
+            })
+            .subscribe();
 
         return () => {
-            unsubscribeUsers();
-            unsubscribeNotifs();
+            supabase.removeChannel(notifsSubscription);
         };
     }, []);
 
@@ -49,47 +53,30 @@ const NotificationPanel: React.FC = () => {
         
         setIsLoading(true);
         try {
-            // Generate a unique ID for the notification upfront.
-            const newNotifDocRef = doc(collection(db, "notifications"));
-            const notifId = newNotifDocRef.id;
-            
-            const targetId = target === 'all' ? 'all' : selectedUserId;
-            
-            // Payload for the central /notifications collection (for admin history)
-            const centralNotifData = {
+            const notificationPayload = {
                 title,
                 message,
                 type,
-                link: link.trim(),
-                target: targetId,
-                createdAt: new Date().toISOString()
+                link: link.trim() || null,
             };
 
-            // Write to the central log first
-            await setDoc(newNotifDocRef, centralNotifData);
-
-            // Payload for the user's subcollection (matches frontend type)
-            const userNotifPayload = {
-                id: notifId,
-                type: type,
-                title: title,
-                message: message,
-                timestamp: Date.now(),
-                isRead: false,
-                ...(link.trim() && { link: link.trim() }),
-            };
-
-            if (target === "all") {
-                const usersSnap = await getDocs(collection(db, "users"));
-                const batch = writeBatch(db);
-                usersSnap.forEach(userDoc => {
-                    const userNotifRef = doc(db, "users", userDoc.id, "notifications", notifId);
-                    batch.set(userNotifRef, userNotifPayload);
+            if (target === 'single') {
+                const { error } = await supabase.from('notifications').insert({
+                    ...notificationPayload,
+                    user_id: selectedUserId,
                 });
-                await batch.commit();
-            } else {
-                const userNotifRef = doc(db, "users", selectedUserId, "notifications", notifId);
-                await setDoc(userNotifRef, userNotifPayload);
+                if (error) throw error;
+            } else { // target === 'all'
+                const { data: allUsers, error: usersError } = await supabase.from("users").select("uid");
+                if (usersError) throw usersError;
+                
+                const notificationsToInsert = allUsers.map(user => ({
+                    ...notificationPayload,
+                    user_id: user.uid,
+                }));
+
+                const { error: bulkInsertError } = await supabase.from('notifications').insert(notificationsToInsert);
+                if (bulkInsertError) throw bulkInsertError;
             }
             
             toast.addToast('success', 'Success', 'Notification sent successfully!');
@@ -98,9 +85,9 @@ const NotificationPanel: React.FC = () => {
             setType('study_update');
             setLink('');
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error sending notification:", error);
-            toast.addToast('error', 'Error', 'Failed to send notification.');
+            toast.addToast('error', 'Error', `Failed to send notification: ${error.message}`);
         } finally {
             setIsLoading(false);
         }
@@ -165,7 +152,7 @@ const NotificationPanel: React.FC = () => {
                                 >
                                     <option value="" disabled>Select User</option>
                                     {users.map(user => (
-                                        <option key={user.id} value={user.id}>{user.displayName}</option>
+                                        <option key={user.uid} value={user.uid}>{user.display_name}</option>
                                     ))}
                                 </select>
                             )}
@@ -189,7 +176,7 @@ const NotificationPanel: React.FC = () => {
                                 <p className="font-bold text-white">{notif.title}</p>
                                 <p className="text-sm text-gray-300">{notif.message}</p>
                                 <p className="text-xs text-gray-500 mt-1">
-                                    Sent to: {notif.target === 'all' ? 'All Users' : users.find(u=>u.id === notif.target)?.displayName || 'Single User'} on {new Date(notif.createdAt).toLocaleString()}
+                                    Sent to: {users.find(u=>u.uid === notif.user_id)?.display_name || 'a user'} on {new Date(notif.timestamp).toLocaleString()}
                                 </p>
                             </div>
                         )) : (
