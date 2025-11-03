@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabase';
 import CourseForm from './CourseForm';
 import LevelForm from './LevelForm';
@@ -36,7 +36,7 @@ const CourseManager: React.FC = () => {
   const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
 
 
-  const fetchCourses = async () => {
+  const fetchCourses = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -53,19 +53,21 @@ const CourseManager: React.FC = () => {
     } finally {
         setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCourses();
 
     const courseSubscription = supabase.channel('public:courses_data')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'courses_data' }, fetchCourses)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'courses_data' }, () => {
+        fetchCourses();
+      })
       .subscribe();
       
     return () => {
         supabase.removeChannel(courseSubscription);
     };
-  }, []);
+  }, [fetchCourses]);
 
   // --- CRUD operations for subjects and topics ---
   const handleSaveSubjectChanges = async (updatedSubject: Subject) => {
@@ -132,6 +134,8 @@ const CourseManager: React.FC = () => {
         if (error) throw error;
         
         toast.addToast('success', 'Success', `Course "${courseName}" deleted successfully.`);
+        // Manually refetch courses to ensure UI consistency, as realtime updates might fail or be disabled.
+        await fetchCourses();
     } catch (err: any) {
         console.error("Error deleting course:", err);
         toast.addToast('error', 'Error', `Failed to delete course: ${err.message}`);
