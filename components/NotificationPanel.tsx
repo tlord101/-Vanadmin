@@ -29,7 +29,7 @@ const NotificationPanel: React.FC = () => {
 
         fetchData();
 
-        const notifsSubscription = supabase.channel('public:notifications')
+        const notifsSubscription = supabase.channel('notification-panel-channel')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
                 setRecentNotifications(current => [payload.new as Notification, ...current].slice(0, 10));
             })

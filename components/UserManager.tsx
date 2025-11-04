@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from '../supabase';
 import type { User, Course } from '../types';
 import EditUserModal from './EditUserModal';
@@ -33,8 +33,7 @@ const UserManager: React.FC = () => {
     const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
 
 
-    const fetchAllData = async () => {
-        setLoading(true);
+    const fetchAllData = useCallback(async () => {
         try {
             const { data: usersData, error: usersError } = await supabase.from('users').select('*');
             if (usersError) throw usersError;
@@ -57,13 +56,16 @@ const UserManager: React.FC = () => {
         } catch (err: any) {
              console.error("Error fetching data: ", err);
              setError(`Failed to process data: ${err.message}`);
-        } finally {
-             setLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
-        fetchAllData();
+        const initialLoad = async () => {
+            setLoading(true);
+            await fetchAllData();
+            setLoading(false);
+        };
+        initialLoad();
 
         // Effect to close menu on outside click
         const handleClickOutside = (event: MouseEvent) => {
@@ -73,15 +75,20 @@ const UserManager: React.FC = () => {
         };
         document.addEventListener('mousedown', handleClickOutside);
 
-        const userSubscription = supabase.channel('public:users')
+        const userSubscription = supabase.channel('user-manager-users-channel')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, fetchAllData)
           .subscribe();
 
+        const leaderboardSubscription = supabase.channel('user-manager-leaderboard-channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'leaderboard_overall'}, fetchAllData)
+            .subscribe();
+
         return () => {
             supabase.removeChannel(userSubscription);
+            supabase.removeChannel(leaderboardSubscription);
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, []);
+    }, [fetchAllData]);
 
     const handleEditClick = (user: User) => {
         setOpenMenuId(null); // Close menu after action

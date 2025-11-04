@@ -7,6 +7,7 @@ import EditSubjectModal from './EditSubjectModal';
 import type { Course, Subject } from '../types';
 import { useToast } from '../contexts/ToastContext';
 import Spinner from './Spinner';
+import AddSubjectsFromJsonModal from './AddSubjectsFromJsonModal';
 
 // --- Icon Components ---
 const ChevronDownIcon = ({ className = "w-6 h-6" }: { className?: string }) => (
@@ -33,6 +34,7 @@ const CourseManager: React.FC = () => {
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
   const [editingSubjectState, setEditingSubjectState] = useState<{ course: Course, subject: Subject } | null>(null);
   const [contextForAdd, setContextForAdd] = useState<{ courseId: string, levelName: string } | null>(null);
+  const [contextForAddFromJson, setContextForAddFromJson] = useState<{ courseId: string, levelName: string, courseName: string } | null>(null);
   const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
 
 
@@ -58,7 +60,7 @@ const CourseManager: React.FC = () => {
   useEffect(() => {
     fetchCourses();
 
-    const courseSubscription = supabase.channel('public:courses_data')
+    const courseSubscription = supabase.channel('course-manager-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'courses_data' }, () => {
         fetchCourses();
       })
@@ -253,12 +255,18 @@ const CourseManager: React.FC = () => {
                     ) : (
                       <p className="text-gray-400 text-center py-4">No subjects found for this level.</p>
                     )}
-                    <div className="mt-4 pt-4 border-t border-white/10 flex justify-center">
+                    <div className="mt-4 pt-4 border-t border-white/10 flex justify-center gap-4 flex-wrap">
                       <button 
                         onClick={() => handleOpenAddModal(course.id, level)}
                         className="font-semibold text-white px-4 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-purple-500 hover:scale-[1.02] transform transition-transform"
                       >
-                        + Add New Subject to {level}
+                        + Add New Subject
+                      </button>
+                      <button 
+                        onClick={() => setContextForAddFromJson({ courseId: course.id, levelName: level, courseName: course.course_name })}
+                        className="font-semibold text-white px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:scale-[1.02] transform transition-transform"
+                      >
+                        Add via JSON
                       </button>
                     </div>
                   </div>
@@ -284,6 +292,15 @@ const CourseManager: React.FC = () => {
             onClose={() => setContextForAdd(null)}
             courseId={contextForAdd.courseId}
             levelName={contextForAdd.levelName}
+        />
+      )}
+
+      {contextForAddFromJson && (
+        <AddSubjectsFromJsonModal
+            onClose={() => setContextForAddFromJson(null)}
+            courseId={contextForAddFromJson.courseId}
+            levelName={contextForAddFromJson.levelName}
+            courseName={contextForAddFromJson.courseName}
         />
       )}
     </div>

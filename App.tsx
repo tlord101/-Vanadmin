@@ -44,6 +44,25 @@ const App: React.FC = () => {
       }
     };
     fetchStats();
+
+    const usersSubscription = supabase.channel('dashboard-stats-users')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, async () => {
+          const { count, error } = await supabase.from('users').select('*', { count: 'exact', head: true });
+          if (!error) setStats(prev => ({ ...prev, totalUsers: count }));
+      })
+      .subscribe();
+
+    const coursesSubscription = supabase.channel('dashboard-stats-courses')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'courses_data' }, async () => {
+          const { count, error } = await supabase.from('courses_data').select('*', { count: 'exact', head: true });
+          if (!error) setStats(prev => ({ ...prev, totalCourses: count }));
+      })
+      .subscribe();
+
+    return () => {
+        supabase.removeChannel(usersSubscription);
+        supabase.removeChannel(coursesSubscription);
+    };
   }, []);
 
   const renderContent = () => {
